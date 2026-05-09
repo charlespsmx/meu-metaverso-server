@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VIBE GRID - Social Metaverse</title>
+<!-- ✅ Three.js r152 (suporta CapsuleGeometry) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+<style>
+:root { --primary: #00f2ff; --bg: #050505; --panel: rgba(20, 20, 20, 0.85); }
+body, html { margin: 0; padding: 0; overflow: hidden; background: var(--bg); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+#login-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle at center, #111, #000); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 1000; transition: opacity 0.5s; }
+.login-box { background: var(--panel); padding: 30px; border-radius: 15px; border: 1px solid var(--primary); text-align: center; box-shadow: 0 0 30px rgba(0, 242, 255, 0.2); }
+h1 { color: var(--primary); margin-bottom: 20px; letter-spacing: 2px; }
+input { padding: 12px; width: 250px; border-radius: 5px; border: none; background: #111; color: white; border-bottom: 2px solid var(--primary); margin-bottom: 15px; outline: none; }
+button { padding: 12px 30px; background: var(--primary); border: none; border-radius: 5px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+button:hover { transform: scale(1.05); filter: brightness(1.2); }
+#ui-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+#chat-area { position: fixed; bottom: 20px; left: 20px; width: 320px; background: var(--panel); border-radius: 10px; pointer-events: auto; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+#chat-messages { height: 200px; overflow-y: auto; padding: 10px; color: #ccc; font-size: 14px; }
+.msg { margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px; }
+.msg-name { color: var(--primary); font-weight: bold; margin-right: 5px; }
+#chat-input { width: 100%; padding: 10px; background: rgba(0,0,0,0.5); border: none; border-top: 1px solid var(--primary); color: white; outline: none; }
+#top-info { position: fixed; top: 20px; left: 20px; color: white; background: var(--panel); padding: 10px 20px; border-radius: 20px; font-size: 12px; pointer-events: auto; }
+canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="login-screen">
+  <div class="login-box">
+    <h1>VIBE GRID</h1>
+    <p style="color: #888;">Digite seu apelido para entrar no mundo</p>
+    <input type="text" id="username" placeholder="Seu nome no metaverso..." maxlength="15">
+    <br>
+    <button onclick="enterWorld()">ENTRAR AGORA</button>
+  </div>
+</div>
+<div id="ui-container">
+  <div id="top-info">🌐 <b>Servidor:</b> Social-Alpha | 📍 <b>Região:</b> Lobby Central</div>
+  <div id="chat-area">
+    <div id="chat-messages"></div>
+    <input type="text" id="chat-input" placeholder="Diga algo para todos..." onkeypress="handleChat(event)">
+  </div>
+</div>
+
+<script>
+// --- CONFIGURAÇÃO GLOBAL ---
+let scene, camera, renderer, player, socket;
+let otherPlayers = {};
+let myName = "";
+let moveState = { forward: false, back: false, left: false, right: false };
+let lastEmit = 0;
+
+// --- ENTRAR NO MUNDO ---
+function enterWorld() {
+  const input = document.getElementById('username');
+  if (input.value.trim().length < 2) return alert("Nome muito curto!");
+  myName = input.value.trim();
+  document.getElementById('login-screen').style.opacity = '0';
+  setTimeout(() => document.getElementById('login-screen').style.display = 'none', 500);
+  initGame();
+}
+
+// --- INICIALIZAÇÃO 3D ---
+function initGame() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x050505);
+  scene.fog = new THREE.Fog(0x050505, 10, 50);
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(window.devicePixelRatio); // ✅ Nitidez em telas HiDPI
+  document.body.appendChild(renderer.domElement);
+
+  // Chão
+  const grid = new THREE.GridHelper(200, 100, 0x00f2ff, 0x222222);
+  scene.add(grid);
+  const floorGeo = new THREE.PlaneGeometry(200, 200);
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x050505 });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  scene.add(floor);
+
+  // Luzes
+  scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+  const point = new THREE.PointLight(0x00f2ff, 1, 100);
+  point.position.set(0, 10, 0);
+  scene.add(point);
+
+  createPlayerAvatar(myName);
+  window.addEventListener('keydown', (e) => updateKey(e.code, true));
+  window.addEventListener('keyup', (e) => updateKey(e.code, false));
+  window.addEventListener('resize', onWindowResize);
+  
+  animate();
+  initSocket(); // ✅ Conecta ao servidor após cena pronta
+  addChatMessage("Sistema", "Bem-vindo ao Vibe Grid! Use WASD para andar.");
+}
+
+function createPlayerAvatar(name, isRemote = false) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.4, 1, 4, 8),
+    new THREE.MeshStandardMaterial({ color: isRemote ? 0xff00ff : 0x00f2ff })
+  );
+  body.position.y = 0.9;
+  group.add(body);
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = 256; canvas.height = 64;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(0,0,256,64);
+  ctx.fillStyle = 'white';
+  ctx.font = 'bold 32px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText(name, 128, 45);
+  const tex = new THREE.CanvasTexture(canvas);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex }));
+  sprite.position.y = 2.2;
+  sprite.scale.set(1.5, 0.4, 1);
+  group.add(sprite);
+
+  scene.add(group);
+  if (!isRemote) player = group;
+  return group;
+}
+
+function updateKey(code, val) {
+  if (document.activeElement.tagName === 'INPUT') return;
+  if (code === 'KeyW' || code === 'ArrowUp') moveState.forward = val;
+  if (code === 'KeyS' || code === 'ArrowDown') moveState.back = val;
+  if (code === 'KeyA' || code === 'ArrowLeft') moveState.left = val;
+  if (code === 'KeyD' || code === 'ArrowRight') moveState.right = val;
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  if (player) {
+    const speed = 0.15;
+    if (moveState.forward) player.translateZ(-speed);
+    if (moveState.back) player.translateZ(speed);
+    if (moveState.left) player.rotation.y += 0.05;
+    if (moveState.right) player.rotation.y -= 0.05;
+
+    // ✅ Atualiza matriz mundial antes de calcular offset da câmera
+    player.updateMatrixWorld();
+    const relativeCameraOffset = new THREE.Vector3(0, 2.5, 5);
+    const cameraOffset = relativeCameraOffset.applyMatrix4(player.matrixWorld);
+    camera.position.lerp(cameraOffset, 0.1);
+    camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
+
+    // ✅ Throttle de envio (20Hz) para não sobrecarregar o servidor
+    const now = Date.now();
+    if (now - lastEmit > 50) {
+      socket.emit('move', { x: player.position.x, z: player.position.z, ry: player.rotation.y });
+      lastEmit = now;
+    }
+  }
+  renderer.render(scene, camera);
+}
+
+// --- MULTIPLAYER (SOCKET.IO) ---
+function initSocket() {
+  socket = io();
+  socket.on('connect', () => {
+    socket.emit('join', { name: myName });
+  });
+
+  socket.on('currentPlayers', (players) => {
+    Object.values(players).forEach((p) => {
+      if (p.id !== socket.id) {
+        const group = createPlayerAvatar(p.name, true);
+        group.position.set(p.x, 0, p.z);
+        group.rotation.y = p.ry;
+        otherPlayers[p.id] = group;
+      }
+    });
+  });
+
+  socket.on('playerJoined', (data) => {
+    const group = createPlayerAvatar(data.name, true);
+    group.position.set(data.x, 0, data.z);
+    group.rotation.y = data.ry;
+    otherPlayers[data.id] = group;
+    addChatMessage("Sistema", `${data.name} entrou no mundo.`);
+  });
+
+  socket.on('playerMoved', (data) => {
+    if (otherPlayers[data.id]) {
+      otherPlayers[data.id].position.set(data.x, 0, data.z);
+      otherPlayers[data.id].rotation.y = data.ry;
+    }
+  });
+
+  socket.on('playerDisconnected', (id) => {
+    if (otherPlayers[id]) {
+      scene.remove(otherPlayers[id]);
+      delete otherPlayers[id];
+    }
+    addChatMessage("Sistema", "Um jogador saiu do mundo.");
+  });
+
+  socket.on('chatMessage', (data) => {
+    addChatMessage(data.name, data.msg);
+  });
+}
+
+// --- SISTEMA DE CHAT ---
+function handleChat(e) {
+  if (e.key === 'Enter') {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (text) {
+      socket.emit('chat', text);
+      input.value = '';
+    }
+  }
+}
+
+function addChatMessage(user, msg) {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'msg';
+  div.innerHTML = `<span class="msg-name">${user}:</span> ${msg}`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function onWindowResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+</script>
+</body>
+</html>
