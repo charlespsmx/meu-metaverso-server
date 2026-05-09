@@ -171,7 +171,7 @@
             <p class="subtitle">Insira seu avatar no plano digital</p>
             <input type="text" id="username" placeholder="Apelido..." maxlength="15" autocomplete="off">
             <button id="btn-enter" onclick="requestEnter()">Inicializar Conexão</button>
-            <p id="conn-status" style="margin-top:15px; font-size:10px; color:#444;">Modo Standalone Pronto</p>
+            <p id="conn-status" style="margin-top:15px; font-size:10px; color:#444;">Standby: Aguardando Entrada</p>
         </div>
     </div>
 
@@ -195,30 +195,25 @@
 
     <script>
         /**
-         * ARQUITETURA DO METAVERSO
-         * Desenvolvido por: Engenheiro de Software Sênior
+         * VIBE GRID ENGINE - VERSÃO CORRIGIDA
          */
 
         // CONFIGURAÇÕES DE REDE
-        // Substitua 'localhost' pela URL do seu servidor no Render/Railway após hospedar o backend
+        // MUITO IMPORTANTE: Troque a URL abaixo pela URL do seu Render.com
         const SERVER_URL = "https://meu-metaverso-server.onrender.com"; 
         
-        // VARIÁVEIS GLOBAIS
         let scene, camera, renderer, socket;
         let myAvatar, myName;
         let isInitialized = false;
         let otherPlayers = {};
         let moveState = { w: false, a: false, s: false, d: false };
-        let rotationY = 0;
 
-        // ELEMENTOS UI
         const loginScreen = document.getElementById('login-screen');
         const chatInput = document.getElementById('chat-input');
         const chatMessages = document.getElementById('chat-messages');
         const pingDisplay = document.getElementById('ping-val');
         const statusIndicator = document.getElementById('indicator');
 
-        // --- 1. ENTRADA NO MUNDO ---
         function requestEnter() {
             const input = document.getElementById('username');
             myName = input.value.trim();
@@ -228,18 +223,17 @@
                 return;
             }
 
-            // Iniciar 3D primeiro para evitar tela preta
+            // Iniciar 3D primeiro
             init3D();
 
-            // Tentar conectar Socket
+            // Tentar conectar ao Socket
             try {
                 connectSocket();
             } catch (e) {
-                console.warn("Servidor offline. Rodando em modo Standalone.");
-                addMessage("Sistema", "Servidor offline. Você está no modo Solo.", true);
+                console.log("Servidor não respondeu. Entrando em modo solo.");
             }
 
-            // Transição de UI
+            // Esconder tela de login
             loginScreen.style.opacity = '0';
             setTimeout(() => {
                 loginScreen.style.display = 'none';
@@ -247,7 +241,6 @@
             }, 800);
         }
 
-        // --- 2. MOTOR 3D (THREE.JS) ---
         function init3D() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x050505);
@@ -255,28 +248,25 @@
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             
-            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
             document.body.appendChild(renderer.domElement);
 
-            // Luzes
             const ambientLight = new THREE.AmbientLight(0x404040, 1); 
             scene.add(ambientLight);
             
-            const sunLight = new THREE.DirectionalLight(var(--primary), 0.5);
+            // CORREÇÃO AQUI: Usando cor Hexadecimal ao invés de variável CSS
+            const sunLight = new THREE.DirectionalLight(0x00f2ff, 0.5);
             sunLight.position.set(5, 10, 7);
             scene.add(sunLight);
 
-            // Grade (Grid Style Hyperfy)
             const gridHelper = new THREE.GridHelper(100, 50, 0x00f2ff, 0x222222);
             scene.add(gridHelper);
 
-            // Meu Avatar
             myAvatar = createAvatar(myName, 0x00f2ff);
             scene.add(myAvatar);
 
-            // Listeners
             window.addEventListener('resize', onResize);
             window.addEventListener('keydown', (e) => handleKeys(e.key.toLowerCase(), true));
             window.addEventListener('keyup', (e) => handleKeys(e.key.toLowerCase(), false));
@@ -287,66 +277,45 @@
 
         function createAvatar(name, colorCode) {
             const group = new THREE.Group();
-
-            // Corpo (Cápsula minimalista)
             const bodyGeo = new THREE.CapsuleGeometry(0.4, 1, 4, 12);
-            const bodyMat = new THREE.MeshStandardMaterial({ 
-                color: colorCode,
-                emissive: colorCode,
-                emissiveIntensity: 0.2,
-                roughness: 0.3,
-                metalness: 0.8
-            });
+            const bodyMat = new THREE.MeshStandardMaterial({ color: colorCode });
             const body = new THREE.Mesh(bodyGeo, bodyMat);
             body.position.y = 0.9;
             group.add(body);
 
-            // Visor Neon
-            const visorGeo = new THREE.BoxGeometry(0.5, 0.1, 0.2);
-            const visorMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-            const visor = new THREE.Mesh(visorGeo, visorMat);
+            const visor = new THREE.Mesh(
+                new THREE.BoxGeometry(0.5, 0.1, 0.2),
+                new THREE.MeshBasicMaterial({ color: 0xffffff })
+            );
             visor.position.set(0, 1.4, 0.3);
             group.add(visor);
 
-            // Label de Nome
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             canvas.width = 512; canvas.height = 128;
-            ctx.fillStyle = 'rgba(0,0,0,0.4)';
-            ctx.roundRect(0, 0, 512, 128, 20);
-            ctx.fill();
-            ctx.font = 'bold 80px Arial';
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(0,0,512,128);
+            ctx.font = 'bold 60px Arial';
+            ctx.fillStyle = 'white';
             ctx.textAlign = 'center';
-            ctx.fillText(name, 256, 90);
+            ctx.fillText(name, 256, 85);
 
-            const labelTex = new THREE.CanvasTexture(canvas);
-            const labelMat = new THREE.SpriteMaterial({ map: labelTex, transparent: true });
-            const labelSprite = new THREE.Sprite(labelMat);
-            labelSprite.position.y = 2.4;
-            labelSprite.scale.set(2, 0.5, 1);
-            group.add(labelSprite);
+            const tex = new THREE.CanvasTexture(canvas);
+            const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex }));
+            sprite.position.y = 2.4;
+            sprite.scale.set(2, 0.5, 1);
+            group.add(sprite);
 
             return group;
         }
 
-        // --- 3. REDE (SOCKET.IO) ---
         function connectSocket() {
-            socket = io(SERVER_URL, { reconnectionAttempts: 3, timeout: 5000 });
+            socket = io(SERVER_URL, { reconnectionAttempts: 5 });
 
             socket.on('connect', () => {
                 statusIndicator.classList.add('online');
                 socket.emit('join-world', { name: myName });
-                addMessage("Sistema", "Conectado ao Vibe Grid.", true);
-                
-                // Medição de Ping
-                setInterval(() => {
-                    const start = Date.now();
-                    socket.emit("ping", () => {
-                        const duration = Date.now() - start;
-                        pingDisplay.innerText = duration;
-                    });
-                }, 3000);
+                addMessage("Sistema", "Conectado ao Vibe Grid.");
             });
 
             socket.on('current-players', (players) => {
@@ -357,7 +326,6 @@
 
             socket.on('player-joined', (data) => {
                 addRemotePlayer(data.id, data);
-                addMessage("Sistema", `${data.name} materializou-se.`, true);
             });
 
             socket.on('player-moved', (data) => {
@@ -377,32 +345,25 @@
                     delete otherPlayers[id];
                 }
             });
-
-            socket.on('connect_error', () => {
-                statusIndicator.classList.remove('online');
-                pingDisplay.innerText = "OFF";
-            });
         }
 
         function addRemotePlayer(id, data) {
             if (otherPlayers[id]) return;
-            const avatar = createAvatar(data.name, 0x7000ff); // Cor diferente para outros
+            const avatar = createAvatar(data.name, 0x7000ff);
             scene.add(avatar);
             otherPlayers[id] = avatar;
         }
 
-        // --- 4. LOGICA DE JOGO E LOOP ---
         function handleKeys(key, isDown) {
             if (document.activeElement === chatInput) return;
-            if (key === 'w' || key === 'arrowup') moveState.w = isDown;
-            if (key === 's' || key === 'arrowdown') moveState.s = isDown;
-            if (key === 'a' || key === 'arrowleft') moveState.a = isDown;
-            if (key === 'd' || key === 'arrowright') moveState.d = isDown;
+            if (key === 'w') moveState.w = isDown;
+            if (key === 's') moveState.s = isDown;
+            if (key === 'a') moveState.a = isDown;
+            if (key === 'd') moveState.d = isDown;
         }
 
         function updateMovement() {
             if (!myAvatar) return;
-
             const speed = 0.12;
             const rotSpeed = 0.04;
             let moved = false;
@@ -420,35 +381,23 @@
                 });
             }
 
-            // Câmera segue o avatar suavemente
             const offset = new THREE.Vector3(0, 3, -6);
             offset.applyQuaternion(myAvatar.quaternion);
-            const targetCamPos = myAvatar.position.clone().add(offset);
-            camera.position.lerp(targetCamPos, 0.1);
+            camera.position.lerp(myAvatar.position.clone().add(offset), 0.1);
             camera.lookAt(myAvatar.position.x, myAvatar.position.y + 1, myAvatar.position.z);
         }
 
         function sendChat() {
             const text = chatInput.value.trim();
-            if (text === "") return;
-
-            if (socket && socket.connected) {
-                socket.emit('chat-message', { name: myName, message: text });
-            } else {
-                addMessage(myName, text); // Local apenas se offline
-            }
+            if (!text) return;
+            if (socket && socket.connected) socket.emit('chat-message', { name: myName, message: text });
             chatInput.value = "";
-            chatInput.blur();
         }
 
-        function addMessage(user, msg, isSystem = false) {
+        function addMessage(user, msg) {
             const div = document.createElement('div');
             div.className = 'message';
-            if (isSystem) {
-                div.innerHTML = `<span class="m-system">[${msg}]</span>`;
-            } else {
-                div.innerHTML = `<span class="m-name">${user}:</span> <span class="m-text">${msg}</span>`;
-            }
+            div.innerHTML = `<span class="m-name">${user}:</span> ${msg}`;
             chatMessages.appendChild(div);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
@@ -461,15 +410,9 @@
 
         function renderLoop() {
             requestAnimationFrame(renderLoop);
-            if (isInitialized) {
-                updateMovement();
-            }
+            if (isInitialized) updateMovement();
             renderer.render(scene, camera);
         }
-
-        // AUTO-FOCUS LOGIN
-        window.onload = () => document.getElementById('username').focus();
-
     </script>
 </body>
 </html>
